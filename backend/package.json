@@ -1,0 +1,20 @@
+{
+  "name": "cana-dulce-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "API REST de comprensión lectora para la Institución Educativa Caña Dulce",
+  "type": "module",
+  "engines": { "node": ">=24.14.1 <25" },
+  "scripts": {
+    "setup": "node scripts/configurar.mjs",
+    "start": "node --env-file=.env src/server.mjs",
+    "dev": "node --env-file=.env --watch src/server.mjs",
+    "seed": "node --env-file=.env scripts/sembrar.mjs",
+    "test": "node --test test/api.test.mjs",
+    "test:collection": "node --env-file=.env scripts/probar-coleccion.mjs"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

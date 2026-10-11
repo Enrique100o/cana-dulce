@@ -1,0 +1,18 @@
+# Archivos locales y de compilación de Android
+android/.gradle/
+android/.kotlin/
+android/.idea/
+android/local.properties
+android/**/build/
+android/*.iml
+android/captures/
+
+# Configuración y datos locales del backend
+backend/node_modules/
+backend/.env
+backend/data/*.sqlite*
+backend/coverage/
+
+# Archivos temporales del sistema
+Thumbs.db
+.DS_Store
