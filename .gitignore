@@ -6,12 +6,15 @@ android/local.properties
 android/**/build/
 android/*.iml
 android/captures/
+android/.externalNativeBuild/
+android/.cxx/
 
 # Configuración y datos locales del backend
 backend/node_modules/
 backend/.env
 backend/data/*.sqlite*
 backend/coverage/
+backend/npm-debug.log*
 
 # Archivos temporales del sistema
 Thumbs.db

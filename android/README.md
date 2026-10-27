@@ -1,57 +1,59 @@
-# Caña Dulce - Aplicación Android
+# Aplicación Android
 
-Aplicación Kotlin con Jetpack Compose que consume la API propia mediante HTTP/JSON. No accede directamente a SQLite.
+Aplicación Kotlin con Jetpack Compose. Consume la API mediante HTTP y JSON; el backend administra la
+información persistente.
 
-## Abrir y ejecutar
+## Ejecutar
 
-1. Abre esta carpeta desde Android Studio y sincroniza Gradle.
-2. Selecciona un emulador o dispositivo Android 7.0 (API 24) o superior.
-3. Inicia el backend en otra terminal, siguiendo ../backend/README.md.
-4. Ejecuta el módulo app desde Android Studio.
+1. Inicia el backend siguiendo [sus instrucciones](../backend/README.md).
+2. Abre esta carpeta en Android Studio y sincroniza Gradle.
+3. Selecciona un emulador o teléfono con Android 7.0 (API 24) o superior.
+4. Ejecuta el módulo app.
 
-El APK de pruebas usa http://10.0.2.2:8080/api en el emulador de Android Studio. Ese host apunta al computador. La bienvenida permite cambiar la conexión de aula.
+Entorno utilizado: SDK 37, Android Gradle Plugin 9.4.1, Gradle 9.6.0 y JDK 25. Las versiones están
+declaradas en Gradle y su catálogo.
 
-Para un teléfono por USB, ejecuta adb reverse tcp:8080 tcp:8080 y configura http://127.0.0.1:8080/api. El backend local debe seguir encendido.
+## Conexión
 
-El APK debug permite HTTP únicamente para 10.0.2.2, localhost y 127.0.0.1. Una compilación release requiere configurar una API HTTPS; no se entrega un servidor publicado.
+- Emulador: http://10.0.2.2:8080/api.
+- Teléfono por USB: activa depuración USB, ejecuta adb reverse tcp:8080 tcp:8080 y configura
+  http://127.0.0.1:8080/api en la pantalla de conexión de aula.
+- Mantén el backend encendido en el computador.
 
-## Recorridos
+La variante debug admite HTTP local para 10.0.2.2, 127.0.0.1 y localhost. Una variante release
+requiere configurar una dirección HTTPS de un servidor publicado.
 
-- Estudiante: registro con alias y grado, ingreso, búsqueda en la API, misiones, lectura con texto ajustable, preguntas, consulta de la historia, finalización, resultados, puntos, estrellas, insignias e historial.
-- Docente: ingreso, búsqueda y filtros en la API, creación y edición de lecturas y preguntas, opciones con una clave correcta, activación, desactivación y consulta de resultados por estudiante.
-- Estados: carga, listas vacías, validación, error de conexión, conflicto de negocio, sesión vencida y confirmaciones.
-- El servidor decide el puntaje, las recompensas y los permisos. La app respeta el bloqueo de contenido con intentos, también validado por backend.
+## Organización
 
-## Código
+Dentro de app/src/main/java/com/canadulce/app/:
 
-    app/src/main/java/com/canadulce/app/
-      MainActivity.kt       Entrada de Android
-      AppViewModel.kt       Estado, navegación y operaciones
-      data/Models.kt        Modelos y validaciones
-      data/ApiClient.kt     HTTP y JSON
-      ui/CanaDulceApp.kt    Pantallas y componentes
-      ui/theme/Theme.kt     Colores y tipografía
+| Archivo o carpeta                 | Responsabilidad                                              |
+| --------------------------------- | ------------------------------------------------------------ |
+| MainActivity.kt                   | Entrada Android y aplicación del tema.                       |
+| AppState.kt                       | Estado de la interfaz y destinos de navegación.              |
+| AppViewModel.kt                   | Acciones, navegación, operaciones y errores.                 |
+| data/Models.kt                    | Datos recibidos de la API.                                   |
+| data/FormDrafts.kt                | Valores de los formularios docentes.                         |
+| data/InputRules.kt                | Validaciones de formularios.                                 |
+| data/ApiClient.kt                 | Solicitudes HTTP, JSON y sesión.                             |
+| ui/CanaDulceApp.kt                | Estructura general y selección de pantalla.                  |
+| ui/screens/auth/                  | Bienvenida, ingreso, registro y conexión.                    |
+| ui/screens/student/               | Misiones, lectura, preguntas, resultados y progreso.         |
+| ui/screens/teacher/               | Gestión de lecturas, preguntas y estudiantes.                |
+| ui/screens/ReadingDetailScreen.kt | Detalle compartido por los dos perfiles.                     |
+| ui/components/                    | Botones, formularios, tarjetas, recompensas e ilustraciones. |
+| ui/theme/                         | Colores y tipografía.                                        |
 
-La sesión permanece en memoria. Cerrar sesión la elimina; después de cerrar completamente la app se vuelve a ingresar. Las respuestas sin enviar se mantienen mientras está abierto el recorrido y al rotar el dispositivo. Al abandonar o cerrar la app se puede retomar el intento desde el servidor y responder nuevamente. No se implementa funcionamiento sin conexión.
+La sesión permanece en memoria y se vuelve a ingresar al cerrar completamente la app. Las respuestas
+sin enviar se mantienen mientras está abierto el recorrido y al rotar el dispositivo. Un intento
+pendiente se puede retomar desde el servidor, seleccionando nuevamente sus respuestas.
 
-## Compilar
+## Compilar un APK
 
-Entorno comprobado: SDK 37, Android Gradle Plugin 9.4.1, Gradle 9.6.0 y JDK 25. Las versiones están definidas en Gradle.
+Desde esta carpeta:
 
-    .\gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+```powershell
+.\gradlew.bat :app:assembleDebug
+```
 
-El APK está en app/build/outputs/apk/debug/app-debug.apk.
-
-## Pruebas en emulador con API real
-
-Desde backend, inicia:
-
-    node scripts/servidor-android-pruebas.mjs
-
-Usa el puerto 8081 y una base aislada nueva en cada arranque. Con el emulador encendido, ejecuta desde android:
-
-    .\gradlew.bat :app:connectedDebugAndroidTest
-
-Reinicia el servidor de pruebas antes de repetir la suite. Las pruebas cubren lectura, consulta del texto, retoma, resultado 75/100, estrellas, historial, búsqueda HTTP, CRUD docente y errores de ingreso/registro. Restauran la conexión de demostración al finalizar.
-
-Resultados XML: app/build/outputs/androidTest-results/connected/debug. Capturas: app/build/outputs/connected_android_test_additional_output. Pruebas unitarias: app/build/test-results/testDebugUnitTest.
+El APK se genera en app/build/outputs/apk/debug/app-debug.apk.

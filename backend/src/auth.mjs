@@ -15,11 +15,19 @@ export function verifyPassword(password, stored) {
 }
 export function session(config, role, student) {
   const token = jwt.sign({ rol: role }, config.jwtSecret, {
-    algorithm: 'HS256', subject: student ? String(student.idEstudiante) : 'docente',
-    issuer: 'cana-dulce-api', audience: 'cana-dulce-android', expiresIn: 28800
+    algorithm: 'HS256',
+    subject: student ? String(student.idEstudiante) : 'docente',
+    issuer: 'cana-dulce-api',
+    audience: 'cana-dulce-android',
+    expiresIn: 28800,
   });
-  return { token, tipoToken: 'Bearer', expiraEnSegundos: 28800, rol: role,
-    ...(student ? { estudiante: student } : {}) };
+  return {
+    token,
+    tipoToken: 'Bearer',
+    expiraEnSegundos: 28800,
+    rol: role,
+    ...(student ? { estudiante: student } : {}),
+  };
 }
 export function authenticate(db, config) {
   return (req, res, next) => {
@@ -28,17 +36,27 @@ export function authenticate(db, config) {
     try {
       if (!match) throw new Error('Token ausente');
       payload = jwt.verify(match[1], config.jwtSecret, {
-        algorithms: ['HS256'], issuer: 'cana-dulce-api', audience: 'cana-dulce-android'
+        algorithms: ['HS256'],
+        issuer: 'cana-dulce-api',
+        audience: 'cana-dulce-android',
       });
-      if (!payload || !['ESTUDIANTE','DOCENTE'].includes(payload.rol)) throw new Error('Rol inválido');
-      if (payload.rol === 'DOCENTE' && payload.sub !== 'docente') throw new Error('Sujeto inválido');
-      if (payload.rol === 'ESTUDIANTE' && (!/^[1-9]\d*$/.test(payload.sub) || !Number.isSafeInteger(Number(payload.sub)))) throw new Error('Sujeto inválido');
+      if (!payload || !['ESTUDIANTE', 'DOCENTE'].includes(payload.rol))
+        throw new Error('Rol inválido');
+      if (payload.rol === 'DOCENTE' && payload.sub !== 'docente')
+        throw new Error('Sujeto inválido');
+      if (
+        payload.rol === 'ESTUDIANTE' &&
+        (!/^[1-9]\d*$/.test(payload.sub) || !Number.isSafeInteger(Number(payload.sub)))
+      )
+        throw new Error('Sujeto inválido');
     } catch {
       throw new ApiError(401, 'SESION_INVALIDA', 'Inicia sesión nuevamente para continuar.');
     }
     req.user = { rol: payload.rol };
     if (payload.rol === 'ESTUDIANTE') {
-      const student = db.prepare('SELECT idEstudiante,alias,grado,estado FROM ESTUDIANTE WHERE idEstudiante=?').get(Number(payload.sub));
+      const student = db
+        .prepare('SELECT idEstudiante,alias,grado,estado FROM ESTUDIANTE WHERE idEstudiante=?')
+        .get(Number(payload.sub));
       if (!student || student.estado !== 'ACTIVO') forbidden();
       req.user.estudiante = student;
     }

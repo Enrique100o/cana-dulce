@@ -5,7 +5,9 @@ import { dirname, resolve } from 'node:path';
 export function openDatabase(filename) {
   if (filename !== ':memory:') mkdirSync(dirname(resolve(filename)), { recursive: true });
   const db = new DatabaseSync(filename, { timeout: 5000 });
-  db.function('normalizar', { deterministic: true }, value => value.normalize('NFC').toLowerCase());
+  db.function('normalizar', { deterministic: true }, (value) =>
+    value.normalize('NFC').toLowerCase(),
+  );
   db.exec('PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;');
   db.exec(readFileSync(new URL('../database/schema.sql', import.meta.url), 'utf8'));
   return db;
