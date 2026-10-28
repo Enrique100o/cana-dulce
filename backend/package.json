@@ -9,12 +9,15 @@
   },
   "scripts": {
     "setup": "node scripts/configurar.mjs",
-    "start": "node --env-file=.env src/server.mjs",
-    "dev": "node --env-file=.env --watch src/server.mjs",
-    "seed": "node --env-file=.env scripts/sembrar.mjs"
+    "start": "node --env-file-if-exists=.env src/server.mjs",
+    "dev": "node --env-file-if-exists=.env --watch src/server.mjs",
+    "db:init": "node --env-file-if-exists=.env scripts/inicializar.mjs",
+    "db:import": "node --env-file-if-exists=.env scripts/migrar-sqlite.mjs",
+    "seed": "node --env-file-if-exists=.env scripts/sembrar.mjs"
   },
   "dependencies": {
     "express": "^5.1.0",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "3.24.6"
   }
 }

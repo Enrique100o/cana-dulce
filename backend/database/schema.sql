@@ -1,251 +1,108 @@
-PRAGMA foreign_keys = ON;
-
--- SQLite usa TEXT para fechas UTC y REAL para el puntaje redondeado a dos decimales.
--- aliasNormalizado es una clave técnica para unicidad Unicode; no sale en la API.
+-- MySQL 8.0.43 o posterior. InnoDB conserva las relaciones y transacciones.
+-- Los textos se normalizan a NFC en la API. La comparación binaria evita
+-- confundir alias distintos por sus acentos.
 CREATE TABLE IF NOT EXISTS ESTUDIANTE (
-  idEstudiante INTEGER PRIMARY KEY AUTOINCREMENT,
-  alias TEXT NOT NULL CHECK (length(alias) BETWEEN 3 AND 30),
-  aliasNormalizado TEXT NOT NULL UNIQUE,
-  grado INTEGER NOT NULL CHECK (grado IN (3, 4)),
-  estado TEXT NOT NULL DEFAULT 'ACTIVO' CHECK (estado IN ('ACTIVO', 'INACTIVO')),
-  codigoAccesoHash TEXT NOT NULL
-) STRICT;
+  idEstudiante INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  alias VARCHAR(30) NOT NULL,
+  aliasNormalizado VARCHAR(60) NOT NULL,
+  grado TINYINT UNSIGNED NOT NULL,
+  estado VARCHAR(8) NOT NULL DEFAULT 'ACTIVO',
+  codigoAccesoHash VARCHAR(200) NOT NULL,
+  CONSTRAINT estudiante_alias_unico UNIQUE (aliasNormalizado),
+  CONSTRAINT estudiante_alias_longitud CHECK (CHAR_LENGTH(alias) BETWEEN 3 AND 30),
+  CONSTRAINT estudiante_grado CHECK (grado IN (3, 4)),
+  CONSTRAINT estudiante_estado CHECK (estado IN ('ACTIVO', 'INACTIVO'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 CREATE TABLE IF NOT EXISTS LECTURA (
-  idLectura INTEGER PRIMARY KEY AUTOINCREMENT,
-  titulo TEXT NOT NULL CHECK (length(titulo) BETWEEN 3 AND 120),
-  contenido TEXT NOT NULL CHECK (length(contenido) BETWEEN 20 AND 8000),
-  grado INTEGER NOT NULL CHECK (grado IN (3, 4)),
-  dificultad TEXT NOT NULL CHECK (dificultad IN ('BAJA', 'MEDIA', 'ALTA')),
-  categoria TEXT CHECK (
-    categoria IS NULL
-    OR length(categoria) BETWEEN 1 AND 50
-  ),
-  estado TEXT NOT NULL DEFAULT 'INACTIVA' CHECK (estado IN ('ACTIVA', 'INACTIVA'))
-) STRICT;
+  idLectura INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  titulo VARCHAR(120) NOT NULL,
+  contenido TEXT NOT NULL,
+  grado TINYINT UNSIGNED NOT NULL,
+  dificultad VARCHAR(5) NOT NULL,
+  categoria VARCHAR(50),
+  estado VARCHAR(8) NOT NULL DEFAULT 'INACTIVA',
+  CONSTRAINT lectura_titulo CHECK (CHAR_LENGTH(titulo) BETWEEN 3 AND 120),
+  CONSTRAINT lectura_contenido CHECK (CHAR_LENGTH(contenido) BETWEEN 20 AND 8000),
+  CONSTRAINT lectura_grado CHECK (grado IN (3, 4)),
+  CONSTRAINT lectura_dificultad CHECK (dificultad IN ('BAJA', 'MEDIA', 'ALTA')),
+  CONSTRAINT lectura_categoria CHECK (categoria IS NULL OR CHAR_LENGTH(categoria) BETWEEN 1 AND 50),
+  CONSTRAINT lectura_estado CHECK (estado IN ('ACTIVA', 'INACTIVA'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 CREATE TABLE IF NOT EXISTS PREGUNTA (
-  idPregunta INTEGER PRIMARY KEY AUTOINCREMENT,
-  idLectura INTEGER NOT NULL REFERENCES LECTURA (idLectura) ON DELETE RESTRICT,
-  enunciado TEXT NOT NULL CHECK (length(enunciado) BETWEEN 5 AND 400),
-  tipo TEXT NOT NULL CHECK (
-    tipo IN (
-      'LITERAL',
-      'INFERENCIAL',
-      'IDEA_PRINCIPAL',
-      'VOCABULARIO',
-      'SECUENCIA'
-    )
+  idPregunta INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  idLectura INT UNSIGNED NOT NULL,
+  enunciado VARCHAR(400) NOT NULL,
+  tipo VARCHAR(14) NOT NULL,
+  orden SMALLINT UNSIGNED NOT NULL,
+  estado VARCHAR(8) NOT NULL DEFAULT 'ACTIVA',
+  CONSTRAINT pregunta_lectura FOREIGN KEY (idLectura) REFERENCES LECTURA (idLectura),
+  CONSTRAINT pregunta_orden_unico UNIQUE (idLectura, orden),
+  CONSTRAINT pregunta_enunciado CHECK (CHAR_LENGTH(enunciado) BETWEEN 5 AND 400),
+  CONSTRAINT pregunta_tipo CHECK (
+    tipo IN ('LITERAL', 'INFERENCIAL', 'IDEA_PRINCIPAL', 'VOCABULARIO', 'SECUENCIA')
   ),
-  orden INTEGER NOT NULL CHECK (orden BETWEEN 1 AND 999),
-  estado TEXT NOT NULL DEFAULT 'ACTIVA' CHECK (estado IN ('ACTIVA', 'INACTIVA')),
-  UNIQUE (idLectura, orden)
-) STRICT;
+  CONSTRAINT pregunta_orden CHECK (orden BETWEEN 1 AND 999),
+  CONSTRAINT pregunta_estado CHECK (estado IN ('ACTIVA', 'INACTIVA'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 CREATE TABLE IF NOT EXISTS OPCION (
-  idOpcion INTEGER PRIMARY KEY AUTOINCREMENT,
-  idPregunta INTEGER NOT NULL REFERENCES PREGUNTA (idPregunta) ON DELETE RESTRICT,
-  texto TEXT NOT NULL CHECK (length(texto) BETWEEN 1 AND 250),
-  orden INTEGER NOT NULL CHECK (orden BETWEEN 1 AND 4),
-  esCorrecta INTEGER NOT NULL CHECK (esCorrecta IN (0, 1)),
-  UNIQUE (idPregunta, orden),
-  UNIQUE (idOpcion, idPregunta)
-) STRICT;
+  idOpcion INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  idPregunta INT UNSIGNED NOT NULL,
+  texto VARCHAR(250) NOT NULL,
+  orden TINYINT UNSIGNED NOT NULL,
+  esCorrecta TINYINT UNSIGNED NOT NULL,
+  CONSTRAINT opcion_pregunta FOREIGN KEY (idPregunta) REFERENCES PREGUNTA (idPregunta),
+  CONSTRAINT opcion_orden_unico UNIQUE (idPregunta, orden),
+  CONSTRAINT opcion_identidad UNIQUE (idOpcion, idPregunta),
+  CONSTRAINT opcion_texto CHECK (CHAR_LENGTH(texto) BETWEEN 1 AND 250),
+  CONSTRAINT opcion_orden CHECK (orden BETWEEN 1 AND 4),
+  CONSTRAINT opcion_correcta CHECK (esCorrecta IN (0, 1))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 CREATE TABLE IF NOT EXISTS INTENTO (
-  idIntento INTEGER PRIMARY KEY AUTOINCREMENT,
-  idEstudiante INTEGER NOT NULL REFERENCES ESTUDIANTE (idEstudiante) ON DELETE RESTRICT,
-  idLectura INTEGER NOT NULL REFERENCES LECTURA (idLectura) ON DELETE RESTRICT,
-  fechaInicio TEXT NOT NULL,
-  fechaFinalizacion TEXT,
-  cantidadCorrectas INTEGER,
-  totalPreguntas INTEGER NOT NULL CHECK (totalPreguntas > 0),
-  puntaje REAL CHECK (
-    puntaje IS NULL
-    OR (
-      puntaje BETWEEN 0 AND 100
-      AND puntaje = round(puntaje, 2)
-    )
-  ),
-  estado TEXT NOT NULL DEFAULT 'EN_PROGRESO' CHECK (estado IN ('EN_PROGRESO', 'COMPLETADO')),
-  CHECK (
-    (
-      estado = 'EN_PROGRESO'
-      AND fechaFinalizacion IS NULL
-      AND cantidadCorrectas IS NULL
-      AND puntaje IS NULL
-    )
-    OR (
-      estado = 'COMPLETADO'
-      AND fechaFinalizacion IS NOT NULL
+  idIntento INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  idEstudiante INT UNSIGNED NOT NULL,
+  idLectura INT UNSIGNED NOT NULL,
+  fechaInicio DATETIME(3) NOT NULL,
+  fechaFinalizacion DATETIME(3),
+  cantidadCorrectas SMALLINT UNSIGNED,
+  totalPreguntas SMALLINT UNSIGNED NOT NULL,
+  puntaje DECIMAL(5,2),
+  estado VARCHAR(11) NOT NULL DEFAULT 'EN_PROGRESO',
+  -- MySQL permite varios NULL en una clave única. Solo los pendientes usan 1.
+  pendiente TINYINT GENERATED ALWAYS AS (
+    CASE WHEN estado = 'EN_PROGRESO' THEN 1 ELSE NULL END
+  ) STORED,
+  CONSTRAINT intento_estudiante FOREIGN KEY (idEstudiante) REFERENCES ESTUDIANTE (idEstudiante),
+  CONSTRAINT intento_lectura FOREIGN KEY (idLectura) REFERENCES LECTURA (idLectura),
+  CONSTRAINT un_intento_pendiente UNIQUE (idEstudiante, idLectura, pendiente),
+  INDEX intentos_historial (idEstudiante, fechaInicio DESC, idIntento DESC),
+  INDEX intentos_lectura (idLectura),
+  CONSTRAINT intento_total CHECK (totalPreguntas > 0),
+  CONSTRAINT intento_puntaje CHECK (puntaje IS NULL OR puntaje BETWEEN 0 AND 100),
+  CONSTRAINT intento_estado CHECK (estado IN ('EN_PROGRESO', 'COMPLETADO')),
+  CONSTRAINT intento_resultado CHECK (
+    (estado = 'EN_PROGRESO' AND fechaFinalizacion IS NULL
+      AND cantidadCorrectas IS NULL AND puntaje IS NULL)
+    OR
+    (estado = 'COMPLETADO' AND fechaFinalizacion IS NOT NULL
       AND cantidadCorrectas IS NOT NULL
-      AND cantidadCorrectas BETWEEN 0 AND totalPreguntas
-      AND puntaje IS NOT NULL
-    )
+      AND cantidadCorrectas BETWEEN 0 AND totalPreguntas AND puntaje IS NOT NULL)
   )
-) STRICT;
-
-CREATE UNIQUE INDEX IF NOT EXISTS un_intento_pendiente ON INTENTO (idEstudiante, idLectura)
-WHERE
-  estado = 'EN_PROGRESO';
-
-CREATE INDEX IF NOT EXISTS intentos_historial
-  ON INTENTO (idEstudiante, fechaInicio DESC, idIntento DESC);
-
-CREATE INDEX IF NOT EXISTS intentos_lectura ON INTENTO (idLectura);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;
 
 CREATE TABLE IF NOT EXISTS RESPUESTA (
-  idRespuesta INTEGER PRIMARY KEY AUTOINCREMENT,
-  idIntento INTEGER NOT NULL REFERENCES INTENTO (idIntento) ON DELETE RESTRICT,
-  idPregunta INTEGER NOT NULL REFERENCES PREGUNTA (idPregunta) ON DELETE RESTRICT,
-  idOpcion INTEGER NOT NULL REFERENCES OPCION (idOpcion) ON DELETE RESTRICT,
-  esCorrecta INTEGER NOT NULL CHECK (esCorrecta IN (0, 1)),
-  UNIQUE (idIntento, idPregunta),
-  FOREIGN KEY (idOpcion, idPregunta) REFERENCES OPCION (idOpcion, idPregunta) ON DELETE RESTRICT
-) STRICT;
-
--- Defensa adicional: el contenido usado queda congelado, incluso ante SQL directo.
-CREATE TRIGGER IF NOT EXISTS lectura_congelada BEFORE
-UPDATE OF titulo,
-contenido,
-grado,
-dificultad,
-categoria ON LECTURA WHEN EXISTS (
-  SELECT
-    1
-  FROM
-    INTENTO
-  WHERE
-    idLectura = OLD.idLectura
-)
-AND (
-  NEW.titulo IS NOT OLD.titulo
-  OR NEW.contenido IS NOT OLD.contenido
-  OR NEW.grado IS NOT OLD.grado
-  OR NEW.dificultad IS NOT OLD.dificultad
-  OR NEW.categoria IS NOT OLD.categoria
-) BEGIN
-SELECT
-  RAISE (ABORT, 'CONTENIDO_BLOQUEADO');
-
-END;
-
-CREATE TRIGGER IF NOT EXISTS pregunta_congelada_insert BEFORE INSERT ON PREGUNTA WHEN EXISTS (
-  SELECT
-    1
-  FROM
-    INTENTO
-  WHERE
-    idLectura = NEW.idLectura
-) BEGIN
-SELECT
-  RAISE (ABORT, 'CONTENIDO_BLOQUEADO');
-
-END;
-
-CREATE TRIGGER IF NOT EXISTS pregunta_congelada_update BEFORE
-UPDATE ON PREGUNTA WHEN EXISTS (
-  SELECT
-    1
-  FROM
-    INTENTO
-  WHERE
-    idLectura = OLD.idLectura
-) BEGIN
-SELECT
-  RAISE (ABORT, 'CONTENIDO_BLOQUEADO');
-
-END;
-
-CREATE TRIGGER IF NOT EXISTS pregunta_congelada_delete BEFORE DELETE ON PREGUNTA WHEN EXISTS (
-  SELECT
-    1
-  FROM
-    INTENTO
-  WHERE
-    idLectura = OLD.idLectura
-) BEGIN
-SELECT
-  RAISE (ABORT, 'CONTENIDO_BLOQUEADO');
-
-END;
-
-CREATE TRIGGER IF NOT EXISTS opcion_congelada_insert BEFORE INSERT ON OPCION WHEN EXISTS (
-  SELECT
-    1
-  FROM
-    PREGUNTA p
-    JOIN INTENTO i USING (idLectura)
-  WHERE
-    p.idPregunta = NEW.idPregunta
-) BEGIN
-SELECT
-  RAISE (ABORT, 'CONTENIDO_BLOQUEADO');
-
-END;
-
-CREATE TRIGGER IF NOT EXISTS opcion_congelada_update BEFORE
-UPDATE ON OPCION WHEN EXISTS (
-  SELECT
-    1
-  FROM
-    PREGUNTA p
-    JOIN INTENTO i USING (idLectura)
-  WHERE
-    p.idPregunta = OLD.idPregunta
-) BEGIN
-SELECT
-  RAISE (ABORT, 'CONTENIDO_BLOQUEADO');
-
-END;
-
-CREATE TRIGGER IF NOT EXISTS opcion_congelada_delete BEFORE DELETE ON OPCION WHEN EXISTS (
-  SELECT
-    1
-  FROM
-    PREGUNTA p
-    JOIN INTENTO i USING (idLectura)
-  WHERE
-    p.idPregunta = OLD.idPregunta
-) BEGIN
-SELECT
-  RAISE (ABORT, 'CONTENIDO_BLOQUEADO');
-
-END;
-
-CREATE TRIGGER IF NOT EXISTS intento_completado_inmutable BEFORE
-UPDATE ON INTENTO WHEN OLD.estado = 'COMPLETADO' BEGIN
-SELECT
-  RAISE (ABORT, 'INTENTO_YA_COMPLETADO');
-
-END;
-
-CREATE TRIGGER IF NOT EXISTS respuesta_no_modificable BEFORE
-UPDATE ON RESPUESTA BEGIN
-SELECT
-  RAISE (ABORT, 'RESPUESTA_INMUTABLE');
-
-END;
-
-CREATE TRIGGER IF NOT EXISTS respuesta_no_eliminable BEFORE DELETE ON RESPUESTA BEGIN
-SELECT
-  RAISE (ABORT, 'RESPUESTA_INMUTABLE');
-
-END;
-
-CREATE TRIGGER IF NOT EXISTS respuesta_pertenece_intento BEFORE INSERT ON RESPUESTA WHEN NOT EXISTS (
-  SELECT
-    1
-  FROM
-    INTENTO i
-    JOIN PREGUNTA p ON p.idLectura = i.idLectura
-  WHERE
-    i.idIntento = NEW.idIntento
-    AND p.idPregunta = NEW.idPregunta
-    AND p.estado = 'ACTIVA'
-    AND i.estado = 'EN_PROGRESO'
-) BEGIN
-SELECT
-  RAISE (ABORT, 'RESPUESTA_AJENA');
-
-END;
+  idRespuesta INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  idIntento INT UNSIGNED NOT NULL,
+  idPregunta INT UNSIGNED NOT NULL,
+  idOpcion INT UNSIGNED NOT NULL,
+  esCorrecta TINYINT UNSIGNED NOT NULL,
+  CONSTRAINT respuesta_intento FOREIGN KEY (idIntento) REFERENCES INTENTO (idIntento),
+  CONSTRAINT respuesta_pregunta FOREIGN KEY (idPregunta) REFERENCES PREGUNTA (idPregunta),
+  CONSTRAINT respuesta_opcion FOREIGN KEY (idOpcion, idPregunta)
+    REFERENCES OPCION (idOpcion, idPregunta),
+  CONSTRAINT respuesta_unica UNIQUE (idIntento, idPregunta),
+  CONSTRAINT respuesta_correcta CHECK (esCorrecta IN (0, 1))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin;

@@ -23,8 +23,8 @@ export function createApp(db, config) {
     next();
   });
   // Comprobación operativa; no se cuenta entre las 19 operaciones del contrato.
-  app.get('/health', (req, res) => {
-    db.prepare('SELECT 1').get();
+  app.get('/health', async (req, res) => {
+    await db.one('SELECT 1');
     res.json({ estado: 'OK', servicio: 'cana-dulce-api' });
   });
   studentRoutes(app, db, config);

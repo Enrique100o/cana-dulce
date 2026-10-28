@@ -14,40 +14,46 @@ import {
 } from '../validation.mjs';
 import { teacher } from '../auth.mjs';
 
-export function findReading(db, readingId) {
-  const row = db.prepare('SELECT * FROM LECTURA WHERE idLectura=?').get(readingId);
+export async function findReading(db, readingId, lock = false) {
+  const row = await db.one(
+    'SELECT * FROM LECTURA WHERE idLectura=?' + (lock ? ' FOR UPDATE' : ''),
+    [readingId],
+  );
   if (!row) missing('La lectura');
   return row;
 }
+
 export function questions(db, readingId, state) {
-  return db
-    .prepare(
-      `SELECT * FROM PREGUNTA
-       WHERE idLectura=? ${state ? 'AND estado=?' : ''}
-       ORDER BY orden, idPregunta`,
-    )
-    .all(...(state ? [readingId, state] : [readingId]));
-}
-export function options(db, questionId) {
-  return db
-    .prepare('SELECT * FROM OPCION WHERE idPregunta=? ORDER BY orden,idOpcion')
-    .all(questionId);
-}
-export function publishable(db, readingId) {
-  const active = questions(db, readingId, 'ACTIVA');
-  return (
-    active.length > 0 &&
-    active.every((question) => {
-      const choices = options(db, question.idPregunta);
-      return (
-        choices.length >= 2 &&
-        choices.length <= 4 &&
-        choices.filter((o) => o.esCorrecta === 1).length === 1
-      );
-    })
+  return db.all(
+    `SELECT * FROM PREGUNTA
+     WHERE idLectura=? ${state ? 'AND estado=?' : ''}
+     ORDER BY orden, idPregunta`,
+    state ? [readingId, state] : [readingId],
   );
 }
-export function readingDto(db, row, summary = false) {
+
+export function options(db, questionId) {
+  return db.all('SELECT * FROM OPCION WHERE idPregunta=? ORDER BY orden,idOpcion', [questionId]);
+}
+
+export async function publishable(db, readingId) {
+  const active = await questions(db, readingId, 'ACTIVA');
+  if (!active.length) return false;
+  for (const question of active) {
+    const choices = await options(db, question.idPregunta);
+    if (
+      choices.length < 2 ||
+      choices.length > 4 ||
+      choices.filter((choice) => choice.esCorrecta === 1).length !== 1
+    )
+      return false;
+  }
+  return true;
+}
+
+export async function readingDto(db, row, summary = false) {
+  const active = await questions(db, row.idLectura, 'ACTIVA');
+  const used = await db.one('SELECT 1 FROM INTENTO WHERE idLectura=? LIMIT 1', [row.idLectura]);
   return {
     idLectura: row.idLectura,
     titulo: row.titulo,
@@ -56,14 +62,14 @@ export function readingDto(db, row, summary = false) {
     dificultad: row.dificultad,
     categoria: row.categoria,
     estado: row.estado,
-    totalPreguntasActivas: questions(db, row.idLectura, 'ACTIVA').length,
-    bloqueadaParaEdicion: Boolean(
-      db.prepare('SELECT 1 FROM INTENTO WHERE idLectura=? LIMIT 1').get(row.idLectura),
-    ),
+    totalPreguntasActivas: active.length,
+    bloqueadaParaEdicion: Boolean(used),
   };
 }
-export function questionDto(db, row, administrative = false) {
-  // Lista explícita de propiedades: la clave de corrección no se serializa para alumnos.
+
+export async function questionDto(db, row, administrative = false) {
+  const choices = await options(db, row.idPregunta);
+  // La clave de corrección solo se incluye en la consulta administrativa.
   return {
     idPregunta: row.idPregunta,
     idLectura: row.idLectura,
@@ -71,28 +77,35 @@ export function questionDto(db, row, administrative = false) {
     tipo: row.tipo,
     orden: row.orden,
     ...(administrative ? { estado: row.estado } : {}),
-    opciones: options(db, row.idPregunta).map((o) => ({
-      idOpcion: o.idOpcion,
-      texto: o.texto,
-      orden: o.orden,
-      ...(administrative ? { esCorrecta: Boolean(o.esCorrecta) } : {}),
+    opciones: choices.map((choice) => ({
+      idOpcion: choice.idOpcion,
+      texto: choice.texto,
+      orden: choice.orden,
+      ...(administrative ? { esCorrecta: Boolean(choice.esCorrecta) } : {}),
     })),
   };
 }
-export function checkReadingAccess(db, req, row) {
+
+export async function checkReadingAccess(db, req, row) {
   if (req.user.rol === 'DOCENTE') return;
   const student = req.user.estudiante;
-  const historical = db
-    .prepare('SELECT 1 FROM INTENTO WHERE idEstudiante=? AND idLectura=? LIMIT 1')
-    .get(student.idEstudiante, row.idLectura);
+  const historical = await db.one(
+    'SELECT 1 FROM INTENTO WHERE idEstudiante=? AND idLectura=? LIMIT 1',
+    [student.idEstudiante, row.idLectura],
+  );
   if (
     !historical &&
-    !(row.grado === student.grado && row.estado === 'ACTIVA' && publishable(db, row.idLectura))
+    !(
+      row.grado === student.grado &&
+      row.estado === 'ACTIVA' &&
+      (await publishable(db, row.idLectura))
+    )
   )
     missing('La lectura');
 }
-export function ensureMutable(db, readingId) {
-  if (db.prepare('SELECT 1 FROM INTENTO WHERE idLectura=? LIMIT 1').get(readingId)) {
+
+export async function ensureMutable(db, readingId) {
+  if (await db.one('SELECT 1 FROM INTENTO WHERE idLectura=? LIMIT 1', [readingId])) {
     throw new ApiError(
       409,
       'CONTENIDO_BLOQUEADO',
@@ -100,11 +113,14 @@ export function ensureMutable(db, readingId) {
     );
   }
 }
-function ensureQuestionOrder(db, readingId, order, questionId = 0) {
+
+async function ensureQuestionOrder(db, readingId, order, questionId = 0) {
   if (
-    db
-      .prepare('SELECT 1 FROM PREGUNTA WHERE idLectura=? AND orden=? AND idPregunta<>?')
-      .get(readingId, order, questionId)
+    await db.one('SELECT 1 FROM PREGUNTA WHERE idLectura=? AND orden=? AND idPregunta<>?', [
+      readingId,
+      order,
+      questionId,
+    ])
   ) {
     throw new ApiError(
       409,
@@ -113,24 +129,30 @@ function ensureQuestionOrder(db, readingId, order, questionId = 0) {
     );
   }
 }
-function saveOptions(db, questionId, choices) {
-  const insert = db.prepare(
-    'INSERT INTO OPCION(idPregunta,texto,orden,esCorrecta) VALUES(?,?,?,?)',
-  );
-  for (const choice of choices)
-    insert.run(questionId, choice.texto, choice.orden, Number(choice.esCorrecta));
+
+async function saveOptions(db, questionId, choices) {
+  for (const choice of choices) {
+    await db.run('INSERT INTO OPCION(idPregunta,texto,orden,esCorrecta) VALUES(?,?,?,?)', [
+      questionId,
+      choice.texto,
+      choice.orden,
+      Number(choice.esCorrecta),
+    ]);
+  }
 }
-function findQuestion(db, questionId) {
-  const question = db.prepare('SELECT * FROM PREGUNTA WHERE idPregunta=?').get(questionId);
+
+async function findQuestion(db, questionId) {
+  const question = await db.one('SELECT * FROM PREGUNTA WHERE idPregunta=?', [questionId]);
   if (!question) missing('La pregunta');
   return question;
 }
-function keepActiveQuestion(db, reading, question, newState) {
+
+async function keepActiveQuestion(db, reading, question, newState) {
   if (
     reading.estado === 'ACTIVA' &&
     question.estado === 'ACTIVA' &&
     newState === 'INACTIVA' &&
-    questions(db, reading.idLectura, 'ACTIVA').length === 1
+    (await questions(db, reading.idLectura, 'ACTIVA')).length === 1
   ) {
     throw new ApiError(
       409,
@@ -141,11 +163,11 @@ function keepActiveQuestion(db, reading, question, newState) {
 }
 
 export function readingRoutes(app, db) {
-  app.get('/api/lecturas', (req, res) => {
+  app.get('/api/lecturas', async (req, res) => {
     noBody(req);
     const filters = query(req.query, ['grado', 'q', 'estado']);
-    const where = [],
-      args = [];
+    const where = [];
+    const args = [];
     const filterGrade = filters.grado !== undefined ? queryGrade(filters.grado) : undefined;
     const filterState =
       filters.estado !== undefined ? enumeration(filters.estado, 'estado', STATES) : undefined;
@@ -168,160 +190,168 @@ export function readingRoutes(app, db) {
       }
     }
     if (filters.q !== undefined) {
-      where.push('instr(normalizar(titulo),?)>0');
+      where.push('LOCATE(?,LOWER(titulo))>0');
       args.push(normalize(text(filters.q, 'q', 1, 100)));
     }
-    let rows = db
-      .prepare(
-        `SELECT * FROM LECTURA
-         ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-         ORDER BY normalizar(titulo), idLectura`,
-      )
-      .all(...args);
-    if (req.user.rol === 'ESTUDIANTE') rows = rows.filter((row) => publishable(db, row.idLectura));
-    const datos = rows.map((row) => readingDto(db, row, true));
+    const rows = await db.all(
+      `SELECT * FROM LECTURA
+       ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+       ORDER BY LOWER(titulo), idLectura`,
+      args,
+    );
+    const datos = [];
+    for (const row of rows) {
+      if (req.user.rol === 'ESTUDIANTE' && !(await publishable(db, row.idLectura))) continue;
+      datos.push(await readingDto(db, row, true));
+    }
     res.json({ datos, total: datos.length });
   });
-  app.get('/api/lecturas/:id', (req, res) => {
+
+  app.get('/api/lecturas/:id', async (req, res) => {
     noBody(req);
     query(req.query, []);
-    const row = findReading(db, id(req.params.id));
-    checkReadingAccess(db, req, row);
-    res.json(readingDto(db, row));
+    const row = await findReading(db, id(req.params.id));
+    await checkReadingAccess(db, req, row);
+    res.json(await readingDto(db, row));
   });
-  app.post('/api/lecturas', teacher, (req, res) => {
+
+  app.post('/api/lecturas', teacher, async (req, res) => {
     const input = readingInput(req.body);
-    const row = transaction(db, () => {
-      const result = db
-        .prepare(
-          'INSERT INTO LECTURA(titulo,contenido,grado,dificultad,categoria) VALUES(?,?,?,?,?)',
-        )
-        .run(input.titulo, input.contenido, input.grado, input.dificultad, input.categoria);
-      return findReading(db, Number(result.lastInsertRowid));
+    const result = await transaction(db, async (tx) => {
+      const insert = await tx.run(
+        'INSERT INTO LECTURA(titulo,contenido,grado,dificultad,categoria) VALUES(?,?,?,?,?)',
+        [input.titulo, input.contenido, input.grado, input.dificultad, input.categoria],
+      );
+      return readingDto(tx, await findReading(tx, insert.insertId));
     });
-    res.status(201).location(`/api/lecturas/${row.idLectura}`).json(readingDto(db, row));
+    res.status(201).location(`/api/lecturas/${result.idLectura}`).json(result);
   });
-  app.put('/api/lecturas/:id', teacher, (req, res) => {
-    const readingId = id(req.params.id),
-      input = readingInput(req.body, true);
-    const row = transaction(db, () => {
-      const old = findReading(db, readingId);
-      const used = db.prepare('SELECT 1 FROM INTENTO WHERE idLectura=? LIMIT 1').get(readingId);
+
+  app.put('/api/lecturas/:id', teacher, async (req, res) => {
+    const readingId = id(req.params.id);
+    const input = readingInput(req.body, true);
+    const result = await transaction(db, async (tx) => {
+      // Todas las escrituras de contenido y los nuevos intentos bloquean primero la lectura.
+      const old = await findReading(tx, readingId, true);
       if (
-        used &&
         ['titulo', 'contenido', 'grado', 'dificultad', 'categoria'].some(
           (key) => old[key] !== input[key],
         )
       )
-        ensureMutable(db, readingId);
-      if (input.estado === 'ACTIVA' && !publishable(db, readingId)) {
+        await ensureMutable(tx, readingId);
+      if (input.estado === 'ACTIVA' && !(await publishable(tx, readingId))) {
         throw new ApiError(
           409,
           'LECTURA_NO_PUBLICABLE',
           'Agrega al menos una pregunta activa válida antes de activar la lectura.',
         );
       }
-      db.prepare(
-        `
-UPDATE LECTURA
-SET
-  titulo = ?,
-  contenido = ?,
-  grado = ?,
-  dificultad = ?,
-  categoria = ?,
-  estado = ?
-WHERE
-  idLectura = ?
-`,
-      ).run(
-        input.titulo,
-        input.contenido,
-        input.grado,
-        input.dificultad,
-        input.categoria,
-        input.estado,
-        readingId,
+      await tx.run(
+        `UPDATE LECTURA SET titulo=?,contenido=?,grado=?,dificultad=?,categoria=?,estado=?
+         WHERE idLectura=?`,
+        [
+          input.titulo,
+          input.contenido,
+          input.grado,
+          input.dificultad,
+          input.categoria,
+          input.estado,
+          readingId,
+        ],
       );
-      return findReading(db, readingId);
+      return readingDto(tx, await findReading(tx, readingId));
     });
-    res.json(readingDto(db, row));
+    res.json(result);
   });
-  app.delete('/api/lecturas/:id', teacher, (req, res) => {
+
+  app.delete('/api/lecturas/:id', teacher, async (req, res) => {
     noBody(req);
     const readingId = id(req.params.id);
-    transaction(db, () => {
-      findReading(db, readingId);
-      db.prepare("UPDATE LECTURA SET estado='INACTIVA' WHERE idLectura=?").run(readingId);
+    await transaction(db, async (tx) => {
+      await findReading(tx, readingId, true);
+      await tx.run("UPDATE LECTURA SET estado='INACTIVA' WHERE idLectura=?", [readingId]);
     });
     res.status(204).end();
   });
-  app.get('/api/lecturas/:id/preguntas', (req, res) => {
+
+  app.get('/api/lecturas/:id/preguntas', async (req, res) => {
     noBody(req);
     query(req.query, []);
-    const readingId = id(req.params.id),
-      row = findReading(db, readingId);
-    checkReadingAccess(db, req, row);
-    const datos = questions(db, readingId, 'ACTIVA').map((q) => questionDto(db, q));
+    const readingId = id(req.params.id);
+    const row = await findReading(db, readingId);
+    await checkReadingAccess(db, req, row);
+    const datos = [];
+    for (const question of await questions(db, readingId, 'ACTIVA')) {
+      datos.push(await questionDto(db, question));
+    }
     res.json({ datos, total: datos.length });
   });
-  app.get('/api/docente/lecturas/:id/preguntas', teacher, (req, res) => {
+
+  app.get('/api/docente/lecturas/:id/preguntas', teacher, async (req, res) => {
     noBody(req);
     const readingId = id(req.params.id);
-    findReading(db, readingId);
+    await findReading(db, readingId);
     const filters = query(req.query, ['estado']);
     const state =
       filters.estado !== undefined ? enumeration(filters.estado, 'estado', STATES) : undefined;
-    const datos = questions(db, readingId, state).map((q) => questionDto(db, q, true));
+    const datos = [];
+    for (const question of await questions(db, readingId, state)) {
+      datos.push(await questionDto(db, question, true));
+    }
     res.json({ datos, total: datos.length });
   });
-  app.post('/api/lecturas/:id/preguntas', teacher, (req, res) => {
-    const readingId = id(req.params.id),
-      input = questionInput(req.body);
-    const result = transaction(db, () => {
-      findReading(db, readingId);
-      ensureMutable(db, readingId);
-      ensureQuestionOrder(db, readingId, input.orden);
-      const insert = db
-        .prepare('INSERT INTO PREGUNTA(idLectura,enunciado,tipo,orden) VALUES(?,?,?,?)')
-        .run(readingId, input.enunciado, input.tipo, input.orden);
-      const questionId = Number(insert.lastInsertRowid);
-      saveOptions(db, questionId, input.opciones);
-      return questionDto(db, findQuestion(db, questionId), true);
+
+  app.post('/api/lecturas/:id/preguntas', teacher, async (req, res) => {
+    const readingId = id(req.params.id);
+    const input = questionInput(req.body);
+    const result = await transaction(db, async (tx) => {
+      await findReading(tx, readingId, true);
+      await ensureMutable(tx, readingId);
+      await ensureQuestionOrder(tx, readingId, input.orden);
+      const insert = await tx.run(
+        'INSERT INTO PREGUNTA(idLectura,enunciado,tipo,orden) VALUES(?,?,?,?)',
+        [readingId, input.enunciado, input.tipo, input.orden],
+      );
+      await saveOptions(tx, insert.insertId, input.opciones);
+      return questionDto(tx, await findQuestion(tx, insert.insertId), true);
     });
     res.status(201).json(result);
   });
-  app.put('/api/preguntas/:id', teacher, (req, res) => {
-    const questionId = id(req.params.id),
-      input = questionInput(req.body, true);
-    const result = transaction(db, () => {
-      const old = findQuestion(db, questionId),
-        reading = findReading(db, old.idLectura);
-      ensureMutable(db, reading.idLectura);
-      ensureQuestionOrder(db, reading.idLectura, input.orden, questionId);
-      keepActiveQuestion(db, reading, old, input.estado);
-      db.prepare('UPDATE PREGUNTA SET enunciado=?,tipo=?,orden=?,estado=? WHERE idPregunta=?').run(
+
+  app.put('/api/preguntas/:id', teacher, async (req, res) => {
+    const questionId = id(req.params.id);
+    const input = questionInput(req.body, true);
+    const result = await transaction(db, async (tx) => {
+      const initial = await findQuestion(tx, questionId);
+      const reading = await findReading(tx, initial.idLectura, true);
+      const old = await findQuestion(tx, questionId);
+      await ensureMutable(tx, reading.idLectura);
+      await ensureQuestionOrder(tx, reading.idLectura, input.orden, questionId);
+      await keepActiveQuestion(tx, reading, old, input.estado);
+      await tx.run('UPDATE PREGUNTA SET enunciado=?,tipo=?,orden=?,estado=? WHERE idPregunta=?', [
         input.enunciado,
         input.tipo,
         input.orden,
         input.estado,
         questionId,
-      );
-      db.prepare('DELETE FROM OPCION WHERE idPregunta=?').run(questionId);
-      saveOptions(db, questionId, input.opciones);
-      return questionDto(db, findQuestion(db, questionId), true);
+      ]);
+      await tx.run('DELETE FROM OPCION WHERE idPregunta=?', [questionId]);
+      await saveOptions(tx, questionId, input.opciones);
+      return questionDto(tx, await findQuestion(tx, questionId), true);
     });
     res.json(result);
   });
-  app.delete('/api/preguntas/:id', teacher, (req, res) => {
+
+  app.delete('/api/preguntas/:id', teacher, async (req, res) => {
     noBody(req);
     const questionId = id(req.params.id);
-    transaction(db, () => {
-      const question = findQuestion(db, questionId),
-        reading = findReading(db, question.idLectura);
-      ensureMutable(db, reading.idLectura);
-      keepActiveQuestion(db, reading, question, 'INACTIVA');
-      db.prepare("UPDATE PREGUNTA SET estado='INACTIVA' WHERE idPregunta=?").run(questionId);
+    await transaction(db, async (tx) => {
+      const initial = await findQuestion(tx, questionId);
+      const reading = await findReading(tx, initial.idLectura, true);
+      const question = await findQuestion(tx, questionId);
+      await ensureMutable(tx, reading.idLectura);
+      await keepActiveQuestion(tx, reading, question, 'INACTIVA');
+      await tx.run("UPDATE PREGUNTA SET estado='INACTIVA' WHERE idPregunta=?", [questionId]);
     });
     res.status(204).end();
   });

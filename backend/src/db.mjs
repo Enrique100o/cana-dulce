@@ -1,28 +1,58 @@
-import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import mysql from 'mysql2/promise';
 
-export function openDatabase(filename) {
-  if (filename !== ':memory:') mkdirSync(dirname(resolve(filename)), { recursive: true });
-  const db = new DatabaseSync(filename, { timeout: 5000 });
-  db.function('normalizar', { deterministic: true }, (value) =>
-    value.normalize('NFC').toLowerCase(),
-  );
-  db.exec('PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;');
-  db.exec(readFileSync(new URL('../database/schema.sql', import.meta.url), 'utf8'));
-  return db;
+function queries(connection) {
+  return {
+    async all(sql, parameters = []) {
+      const [rows] = await connection.execute(sql, parameters);
+      return rows;
+    },
+    async one(sql, parameters = []) {
+      const [rows] = await connection.execute(sql, parameters);
+      return rows[0];
+    },
+    async run(sql, parameters = []) {
+      const [result] = await connection.execute(sql, parameters);
+      return result;
+    },
+  };
 }
 
-// BEGIN IMMEDIATE toma el bloqueo antes de consultar las reglas de negocio.
-// El callback es síncrono: no se debe introducir await dentro de una transacción.
-export function transaction(db, operation) {
-  db.exec('BEGIN IMMEDIATE');
+export async function openDatabase(config) {
+  const pool = mysql.createPool({
+    ...config,
+    charset: 'utf8mb4',
+    timezone: 'Z',
+    dateStrings: false,
+    // Los puntajes están limitados a DECIMAL(5,2); el contrato JSON usa números.
+    decimalNumbers: true,
+    connectionLimit: 5,
+    waitForConnections: true,
+    queueLimit: 50,
+    connectTimeout: 10000,
+    multipleStatements: false,
+  });
   try {
-    const result = operation();
-    db.exec('COMMIT');
+    await pool.execute('SELECT 1');
+  } catch (error) {
+    await pool.end();
+    throw error;
+  }
+  return { ...queries(pool), pool, close: () => pool.end() };
+}
+
+export async function transaction(db, operation) {
+  const connection = await db.pool.getConnection();
+  try {
+    // La transacción usa una sola conexión y ve los cambios ya confirmados.
+    await connection.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+    await connection.beginTransaction();
+    const result = await operation(queries(connection));
+    await connection.commit();
     return result;
   } catch (error) {
-    db.exec('ROLLBACK');
+    await connection.rollback();
     throw error;
+  } finally {
+    connection.release();
   }
 }

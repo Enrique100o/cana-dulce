@@ -30,7 +30,7 @@ export function session(config, role, student) {
   };
 }
 export function authenticate(db, config) {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     const match = /^Bearer ([A-Za-z0-9._-]+)$/i.exec(req.get('Authorization') ?? '');
     let payload;
     try {
@@ -54,9 +54,10 @@ export function authenticate(db, config) {
     }
     req.user = { rol: payload.rol };
     if (payload.rol === 'ESTUDIANTE') {
-      const student = db
-        .prepare('SELECT idEstudiante,alias,grado,estado FROM ESTUDIANTE WHERE idEstudiante=?')
-        .get(Number(payload.sub));
+      const student = await db.one(
+        'SELECT idEstudiante,alias,grado,estado FROM ESTUDIANTE WHERE idEstudiante=?',
+        [Number(payload.sub)],
+      );
       if (!student || student.estado !== 'ACTIVO') forbidden();
       req.user.estudiante = student;
     }

@@ -8,10 +8,11 @@ export function stars(value) {
   if (value === null) return null;
   return value === 0 ? 0 : value < 50 ? 1 : value < 80 ? 2 : 3;
 }
-export function progress(db, student) {
-  const completed = db
-    .prepare("SELECT idLectura,puntaje FROM INTENTO WHERE idEstudiante=? AND estado='COMPLETADO'")
-    .all(student.idEstudiante);
+export async function progress(db, student) {
+  const completed = await db.all(
+    "SELECT idLectura,puntaje FROM INTENTO WHERE idEstudiante=? AND estado='COMPLETADO'",
+    [student.idEstudiante],
+  );
   const distinct = new Set(completed.map((i) => i.idLectura)).size;
   const cents = completed.reduce((sum, i) => sum + Math.round(i.puntaje * 100), 0);
   const count = completed.length;

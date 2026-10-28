@@ -12,13 +12,13 @@ lecturas y preguntas y consulta el progreso del aula.
 Aplicación Android (Kotlin y Jetpack Compose)
                   ↕ HTTP / JSON
 API REST (Node.js y Express)
-                  ↕ SQL
-Base de datos (SQLite)
+                  ↕ Consultas SQL parametrizadas
+Base de datos MySQL (InnoDB)
 ```
 
 El backend valida los permisos, califica las respuestas y conserva los resultados. Android muestra
-la información recibida. SQLite se ejecuta dentro del backend y guarda los datos en un archivo
-local.
+la información recibida y nunca recibe las credenciales de MySQL. Las transacciones impiden guardar
+resultados incompletos y los bloqueos evitan calificaciones duplicadas ante envíos simultáneos.
 
 ## Estructura
 
@@ -35,35 +35,39 @@ cana-dulce/
 │           ├── screens/     Acceso, estudiante y docente
 │           └── theme/       Colores y tipografía
 └── backend/
-    ├── src/                 Arranque, seguridad y reglas compartidas
+    ├── src/                 Servidor, seguridad y reglas compartidas
     │   └── routes/          Estudiantes, lecturas e intentos
-    ├── database/            Esquema SQL y contenido de demostración
-    ├── scripts/             Configuración y carga de datos
-    └── data/                Base local, excluida de Git
+    ├── database/            Tablas MySQL, triggers y contenido de demostración
+    └── scripts/             Configuración, inicialización, importación y carga inicial
 ```
 
 ## Preparar una copia nueva
 
-Requisitos: Git, Node.js 24.x desde 24.14.1, Android Studio compatible con Android Gradle Plugin
-9.4.1, SDK de Android 37 y JDK 25 para Gradle. El proyecto incluye Gradle Wrapper y configuración de
-descarga del JDK. La primera instalación necesita conexión para descargar las dependencias.
-
-Desde PowerShell:
+Requisitos: Git, Node.js 24.x desde 24.14.1, MySQL 8.0.43 o posterior, Android Studio compatible con
+Android Gradle Plugin 9.4.1, SDK 37 y JDK 25. El proyecto incluye Gradle Wrapper y configuración de
+descarga del JDK.
 
 ```powershell
 git clone https://github.com/Enrique100o/cana-dulce.git
 Set-Location -LiteralPath '.\cana-dulce\backend'
 npm.cmd ci
 npm.cmd run setup
+```
+
+Crea la base y su usuario, ejecuta los archivos SQL y completa la conexión en .env siguiendo
+[la instalación del backend](backend/README.md). Después:
+
+```powershell
 npm.cmd run seed
 npm.cmd start
 ```
 
-El comando setup genera .env; seed crea las tablas y agrega datos ficticios sin borrar los registros
-existentes. Comprueba la API en http://127.0.0.1:8080/health.
+Comprueba la API en http://127.0.0.1:8080/health. Abre android en Android Studio, sincroniza Gradle
+y ejecuta app en el emulador. Mantén MySQL y el backend encendidos. La aplicación usa
+http://10.0.2.2:8080/api en el emulador.
 
-Después abre android en Android Studio, sincroniza Gradle y ejecuta app en el emulador. Mantén el
-backend encendido. La aplicación usa http://10.0.2.2:8080/api en el emulador.
+Clonar el repositorio descarga el código; cada instalación debe configurar MySQL y sus credenciales.
+La información privada y los registros del equipo original no se publican en Git.
 
 ## Accesos de demostración
 
@@ -73,17 +77,17 @@ backend encendido. La aplicación usa http://10.0.2.2:8080/api en el emulador.
 | Estudiante de tercero | Lector03        | 728461              |
 | Estudiante de cuarto  | Lector04        | 864209              |
 
-Son perfiles ficticios para demostración local. Las claves de sesión se generan en cada instalación.
+Son perfiles ficticios para demostración local. El docente puede elegir otra contraseña antes de
+generar la configuración. Cada instalación genera su propia clave JWT. Los estudiantes nuevos eligen
+su código de acceso al registrarse.
 
 ## Documentación
 
-- [Android](android/README.md): ejecución, conexión por USB y organización de las pantallas.
-- [Backend](backend/README.md): configuración, tablas, endpoints y reglas de negocio.
+- [Android](android/README.md): ejecución, conexión por USB y organización de pantallas.
+- [Backend](backend/README.md): instalación de MySQL, configuración, tablas, endpoints y reglas.
 
-GitHub conserva el código necesario para reconstruir el proyecto. La configuración privada, las
-bases locales, las dependencias y las compilaciones están excluidas. El código usa .editorconfig:
-cuatro espacios para Kotlin, dos para JavaScript y líneas de referencia de 100 caracteres.
+El servidor actual se ejecuta localmente. El backend admite una conexión MySQL remota con TLS y
+configuración mediante variables de entorno, pero el despliegue público aún está pendiente.
 
-Los PDF, el Word, el APK y las evidencias académicas se conservan fuera de esta carpeta. El backend
-se ejecuta localmente; el repositorio no publica un servidor. La aplicación requiere conexión con la
-API.
+Los documentos académicos, el APK y los respaldos se conservan fuera del código fuente. El proyecto
+usa .editorconfig y .prettierrc.json para mantener un formato uniforme.

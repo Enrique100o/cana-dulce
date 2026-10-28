@@ -12,7 +12,12 @@ android/.cxx/
 # Configuración y datos locales del backend
 backend/node_modules/
 backend/.env
+backend/.env.*
+!backend/.env.example
 backend/data/*.sqlite*
+backend/data/*.sql
+backend/data/*.json
+backend/certificados/
 backend/coverage/
 backend/npm-debug.log*
 

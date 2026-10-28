@@ -35,6 +35,34 @@ export function errorHandler(error, req, res, next) {
       },
     });
   }
+  if (error.code === 'ER_DUP_ENTRY') {
+    return res.status(409).json({
+      error: {
+        codigo: 'CONFLICTO_DE_DATOS',
+        mensaje:
+          'Ya existe un registro con esos datos. Actualiza la pantalla e inténtalo nuevamente.',
+        detalles: [],
+      },
+    });
+  }
+  if (
+    [
+      'ER_LOCK_DEADLOCK',
+      'ER_LOCK_WAIT_TIMEOUT',
+      'ECONNREFUSED',
+      'ETIMEDOUT',
+      'PROTOCOL_CONNECTION_LOST',
+      'ER_CON_COUNT_ERROR',
+    ].includes(error.code)
+  ) {
+    return res.status(503).json({
+      error: {
+        codigo: 'SERVICIO_NO_DISPONIBLE',
+        mensaje: 'El servicio no está disponible en este momento. Inténtalo nuevamente.',
+        detalles: [],
+      },
+    });
+  }
   // La traza se queda en el servidor, nunca en la respuesta móvil.
   console.error('Error interno de API:', error.code ?? error.name);
   res.status(500).json({

@@ -1,6 +1,11 @@
 node_modules/
 .env
+.env.*
+!.env.example
 data/*.sqlite*
+data/*.sql
+data/*.json
+certificados/
 coverage/
 evidencia/*.json
 !evidencia/.gitkeep

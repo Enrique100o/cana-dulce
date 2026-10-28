@@ -1,7 +1,7 @@
 # Aplicación Android
 
 Aplicación Kotlin con Jetpack Compose. Consume la API mediante HTTP y JSON; el backend administra la
-información persistente.
+información persistente en MySQL. Android se comunica con la API y no accede directamente a la base.
 
 ## Ejecutar
 
